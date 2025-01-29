@@ -365,8 +365,8 @@ where
   fn get_batch_challenge(v: &[Vec<E::Scalar>], transcript: &mut <E as Engine>::TE) -> E::Scalar {
     transcript.absorb(
       b"v",
-      &v.iter()
-        .flatten()
+      &itertools::izip!(&v[0], &v[1], &v[2])
+        .flat_map(|(a, b, c)| [a, b, c])
         .cloned()
         .collect::<Vec<E::Scalar>>()
         .as_slice(),
