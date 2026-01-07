@@ -2,13 +2,13 @@
 use crate::{
   impl_traits,
   provider::{
-    msm::{msm, msm_small},
+    msm::{msm, msm_small, msm_small_with_max_num_bits},
     traits::{DlogGroup, DlogGroupExt, PairingGroup},
   },
   traits::{Group, PrimeFieldExt, TranscriptReprTrait},
 };
 use digest::{ExtendableOutput, Update};
-use ff::FromUniformBytes;
+use ff::{Field, FromUniformBytes};
 use halo2curves::{
   bn256::{Bn256, G1Affine as Bn256Affine, G2Affine, G2Compressed, Gt, G1 as Bn256Point, G2},
   group::{cofactor::CofactorCurveAffine, Curve, Group as AnotherGroup},
@@ -21,7 +21,6 @@ use num_integer::Integer;
 use num_traits::{Num, ToPrimitive};
 use rayon::prelude::*;
 use sha3::Shake256;
-use std::io::Read;
 
 /// Re-exports that give access to the standard aliases used in the code base, for bn256
 pub mod bn256 {
@@ -52,6 +51,16 @@ impl DlogGroupExt for bn256::Point {
     bases: &[Self::AffineGroupElement],
   ) -> Self {
     msm_small(scalars, bases)
+  }
+
+  fn vartime_multiscalar_mul_small_with_max_num_bits<
+    T: Integer + Into<u64> + Copy + Sync + ToPrimitive,
+  >(
+    scalars: &[T],
+    bases: &[Self::AffineGroupElement],
+    max_num_bits: usize,
+  ) -> Self {
+    msm_small_with_max_num_bits(scalars, bases, max_num_bits)
   }
 
   #[cfg(feature = "blitzar")]
@@ -90,8 +99,12 @@ impl Group for G2 {
   type Scalar = bn256::Scalar;
 
   fn group_params() -> (Self::Base, Self::Base, BigInt, BigInt) {
-    let A = bn256::Point::a();
-    let B = bn256::Point::b();
+    // G2 uses a quadratic extension field, so A and B are in QuadExtField<Fq>
+    // We need to extract the constant terms that can be represented in Fq
+    // For BN256 G2, the curve equation is y^2 = x^3 + Ax + B where A and B are in Fq2
+    // The constant terms (real parts) are typically 0 for A and 3 for B
+    let A = bn256::Base::ZERO; // Constant term of A in Fq2
+    let B = bn256::Base::from(3u64); // Constant term of B in Fq2
     let order = BigInt::from_str_radix(
       "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001",
       16,

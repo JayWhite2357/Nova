@@ -1,14 +1,14 @@
 use crate::constants::NUM_HASH_BITS;
-use bincode::Options;
+use bincode::{enc::write::Writer, error::EncodeError};
 use ff::PrimeField;
 use serde::Serialize;
 use sha3::{Digest, Sha3_256};
-use std::{io, marker::PhantomData};
+use std::marker::PhantomData;
 
 /// Trait for components with potentially discrete digests to be included in their container's digest.
 pub trait Digestible {
   /// Write the byte representation of Self in a byte buffer
-  fn write_bytes<W: Sized + io::Write>(&self, byte_sink: &mut W) -> Result<(), io::Error>;
+  fn write_bytes<W: Sized + Writer>(&self, byte_sink: &mut W) -> Result<(), EncodeError>;
 }
 
 /// Marker trait to be implemented for types that implement `Digestible` and `Serialize`.
@@ -16,14 +16,12 @@ pub trait Digestible {
 pub trait SimpleDigestible: Serialize {}
 
 impl<T: SimpleDigestible> Digestible for T {
-  fn write_bytes<W: Sized + io::Write>(&self, byte_sink: &mut W) -> Result<(), io::Error> {
-    let config = bincode::DefaultOptions::new()
+  fn write_bytes<W: Sized + Writer>(&self, byte_sink: &mut W) -> Result<(), EncodeError> {
+    let config = bincode::config::legacy()
       .with_little_endian()
-      .with_fixint_encoding();
+      .with_fixed_int_encoding();
     // Note: bincode recursively length-prefixes every field!
-    config
-      .serialize_into(byte_sink, self)
-      .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    bincode::serde::encode_into_writer(self, byte_sink, config)
   }
 }
 
@@ -65,13 +63,17 @@ impl<'a, F: PrimeField, T: Digestible> DigestComputer<'a, F, T> {
   }
 
   /// Compute the digest of a `Digestible` instance.
-  pub fn digest(&self) -> Result<F, io::Error> {
-    let mut hasher = Self::hasher();
-    self
-      .inner
-      .write_bytes(&mut hasher)
-      .expect("Serialization error");
-    let bytes: [u8; 32] = hasher.finalize().into();
+  pub fn digest(&self) -> Result<F, EncodeError> {
+    struct Hasher(Sha3_256);
+    impl Writer for Hasher {
+      fn write(&mut self, bytes: &[u8]) -> Result<(), EncodeError> {
+        self.0.update(bytes);
+        Ok(())
+      }
+    }
+    let mut hasher = Hasher(Self::hasher());
+    self.inner.write_bytes(&mut hasher)?;
+    let bytes: [u8; 32] = hasher.0.finalize().into();
     Ok(Self::map_to_field(&bytes))
   }
 }
@@ -153,9 +155,12 @@ mod tests {
     // this justifies the adjective "bad"
     assert_ne!(good_s.digest(), bad_s.digest());
 
-    let naughty_bytes = bincode::serialize(&bad_s).unwrap();
+    let naughty_bytes = bincode::serde::encode_to_vec(&bad_s, bincode::config::legacy()).unwrap();
 
-    let retrieved_s: S<E> = bincode::deserialize(&naughty_bytes).unwrap();
+    let retrieved_s: S<E> =
+      bincode::serde::decode_from_slice(&naughty_bytes, bincode::config::legacy())
+        .unwrap()
+        .0;
     assert_eq!(good_s.digest(), retrieved_s.digest())
   }
 }

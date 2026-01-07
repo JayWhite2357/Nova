@@ -1,11 +1,10 @@
 //! This module provides an implementation of a commitment engine
+#[cfg(feature = "io")]
+use crate::provider::ptau::{read_points, write_points, PtauFileError};
 use crate::{
   errors::NovaError,
   gadgets::utils::to_bignat_repr,
-  provider::{
-    ptau::{read_points, write_points, PtauFileError},
-    traits::{DlogGroup, DlogGroupExt},
-  },
+  provider::traits::{DlogGroup, DlogGroupExt},
   traits::{
     commitment::{CommitmentEngineTrait, CommitmentTrait, Len},
     AbsorbInRO2Trait, AbsorbInROTrait, Engine, ROTrait, TranscriptReprTrait,
@@ -14,7 +13,7 @@ use crate::{
 use core::{
   fmt::Debug,
   marker::PhantomData,
-  ops::{Add, Mul, MulAssign},
+  ops::{Add, Mul, MulAssign, Range},
 };
 use ff::Field;
 use num_integer::Integer;
@@ -22,6 +21,7 @@ use num_traits::ToPrimitive;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "io")]
 const KEY_FILE_HEAD: [u8; 12] = *b"PEDERSEN_KEY";
 
 /// A type that holds commitment generators
@@ -188,19 +188,6 @@ pub struct CommitmentEngine<E: Engine> {
   _p: PhantomData<E>,
 }
 
-impl<E: Engine> CommitmentKey<E>
-where
-  E::GE: DlogGroup,
-{
-  pub fn save_to(&self, writer: &mut impl std::io::Write) -> Result<(), PtauFileError> {
-    writer.write_all(&KEY_FILE_HEAD)?;
-    let mut points = Vec::with_capacity(self.ck.len() + 1);
-    points.push(self.h);
-    points.extend(self.ck.iter().cloned());
-    write_points(writer, points)
-  }
-}
-
 impl<E: Engine> CommitmentEngineTrait<E> for CommitmentEngine<E>
 where
   E::GE: DlogGroupExt,
@@ -246,6 +233,28 @@ where
     }
   }
 
+  fn commit_small_range<T: Integer + Into<u64> + Copy + Sync + ToPrimitive>(
+    ck: &Self::CommitmentKey,
+    v: &[T],
+    r: &<E as Engine>::Scalar,
+    range: Range<usize>,
+    max_num_bits: usize,
+  ) -> Self::Commitment {
+    let bases = &ck.ck[range.clone()];
+    let scalars = &v[range];
+
+    assert!(bases.len() == scalars.len());
+
+    let mut res =
+      E::GE::vartime_multiscalar_mul_small_with_max_num_bits(scalars, bases, max_num_bits);
+
+    if r != &E::Scalar::ZERO {
+      res += <E::GE as DlogGroup>::group(&ck.h) * r;
+    }
+
+    Commitment { comm: res }
+  }
+
   fn derandomize(
     dk: &Self::DerandKey,
     commit: &Self::Commitment,
@@ -256,6 +265,7 @@ where
     }
   }
 
+  #[cfg(feature = "io")]
   fn load_setup(
     reader: &mut (impl std::io::Read + std::io::Seek),
     _label: &'static [u8],
@@ -278,6 +288,18 @@ where
       ck: second.to_vec(),
       h: first[0],
     })
+  }
+
+  #[cfg(feature = "io")]
+  fn save_setup(
+    ck: &Self::CommitmentKey,
+    writer: &mut impl std::io::Write,
+  ) -> Result<(), PtauFileError> {
+    writer.write_all(&KEY_FILE_HEAD)?;
+    let mut points = Vec::with_capacity(ck.ck.len() + 1);
+    points.push(ck.h);
+    points.extend(ck.ck.iter().cloned());
+    write_points(writer, points)
   }
 }
 
@@ -382,6 +404,7 @@ where
   }
 }
 
+#[cfg(feature = "io")]
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -399,9 +422,7 @@ mod tests {
 
     let keys = CommitmentEngine::<E>::setup(LABEL, 100);
 
-    keys
-      .save_to(&mut BufWriter::new(File::create(path).unwrap()))
-      .unwrap();
+    CommitmentEngine::save_setup(&keys, &mut BufWriter::new(File::create(path).unwrap())).unwrap();
 
     let keys_read = CommitmentEngine::load_setup(&mut File::open(path).unwrap(), LABEL, 100);
 

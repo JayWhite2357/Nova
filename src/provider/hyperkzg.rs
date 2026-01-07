@@ -6,15 +6,12 @@
 //! (2) HyperKZG is specialized to use KZG as the univariate commitment scheme, so it includes several optimizations (both during the transformation of multilinear-to-univariate claims
 //! and within the KZG commitment scheme implementation itself).
 #![allow(non_snake_case)]
+#[cfg(feature = "io")]
+use crate::provider::{ptau::PtauFileError, read_ptau, write_ptau};
 use crate::{
   errors::NovaError,
   gadgets::utils::to_bignat_repr,
-  provider::{
-    ptau::PtauFileError,
-    read_ptau,
-    traits::{DlogGroup, DlogGroupExt, PairingGroup},
-    write_ptau,
-  },
+  provider::traits::{DlogGroup, DlogGroupExt, PairingGroup},
   traits::{
     commitment::{CommitmentEngineTrait, CommitmentTrait, Len},
     evaluation::EvaluationEngineTrait,
@@ -24,6 +21,7 @@ use crate::{
 use core::{
   iter,
   marker::PhantomData,
+  ops::Range,
   ops::{Add, Mul, MulAssign},
   slice,
 };
@@ -39,6 +37,9 @@ type G1Affine<E> = <<E as Engine>::GE as DlogGroup>::AffineGroupElement;
 
 /// Alias to points on G1 that are in preprocessed form
 type G2Affine<E> = <<<E as Engine>::GE as PairingGroup>::G2 as DlogGroup>::AffineGroupElement;
+
+/// Default number of target chunks used in splitting up polynomial division in the kzg_open closure
+const DEFAULT_TARGET_CHUNKS: usize = 1 << 10;
 
 /// KZG commitment key
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,24 +129,6 @@ where
 {
   fn to_coordinates(&self) -> (E::Base, E::Base, bool) {
     self.comm.to_coordinates()
-  }
-}
-
-impl<E: Engine> CommitmentKey<E>
-where
-  E::GE: PairingGroup,
-{
-  /// Save keys
-  pub fn save_to(
-    &self,
-    mut writer: &mut (impl std::io::Write + std::io::Seek),
-  ) -> Result<(), PtauFileError> {
-    let g1_points = self.ck.clone();
-
-    let g2_points = vec![self.tau_H, self.tau_H];
-    let power = g1_points.len().next_power_of_two().trailing_zeros() + 1;
-
-    write_ptau(&mut writer, g1_points, g2_points, power)
   }
 }
 
@@ -537,6 +520,7 @@ where
     }
   }
 
+  #[cfg(feature = "io")]
   fn load_setup(
     reader: &mut (impl std::io::Read + std::io::Seek),
     label: &'static [u8],
@@ -544,6 +528,7 @@ where
   ) -> Result<Self::CommitmentKey, PtauFileError> {
     let num = n.next_power_of_two();
 
+    // read points as well as check sanity of ptau file
     let (g1_points, g2_points) = read_ptau(reader, num, 2)?;
 
     let ck = g1_points.to_vec();
@@ -553,6 +538,42 @@ where
     let h = *E::GE::from_label(label, 1).first().unwrap();
 
     Ok(CommitmentKey { ck, h, tau_H })
+  }
+
+  /// Save keys
+  #[cfg(feature = "io")]
+  fn save_setup(
+    ck: &Self::CommitmentKey,
+    mut writer: &mut (impl std::io::Write + std::io::Seek),
+  ) -> Result<(), PtauFileError> {
+    let g1_points = ck.ck.clone();
+
+    let g2_points = vec![ck.tau_H, ck.tau_H];
+    let power = g1_points.len().next_power_of_two().trailing_zeros() + 1;
+
+    write_ptau(&mut writer, g1_points, g2_points, power)
+  }
+
+  fn commit_small_range<T: Integer + Into<u64> + Copy + Sync + ToPrimitive>(
+    ck: &Self::CommitmentKey,
+    v: &[T],
+    r: &<E as Engine>::Scalar,
+    range: Range<usize>,
+    max_num_bits: usize,
+  ) -> Self::Commitment {
+    let bases = &ck.ck[range.clone()];
+    let scalars = &v[range];
+
+    assert!(bases.len() == scalars.len());
+
+    let mut res =
+      E::GE::vartime_multiscalar_mul_small_with_max_num_bits(scalars, bases, max_num_bits);
+
+    if r != &E::Scalar::ZERO {
+      res += <E::GE as DlogGroup>::group(&ck.h) * r;
+    }
+
+    Commitment { comm: res }
   }
 }
 
@@ -570,9 +591,9 @@ pub struct VerifierKey<E: Engine>
 where
   E::GE: PairingGroup,
 {
-  G: G1Affine<E>,
-  H: G2Affine<E>,
-  tau_H: G2Affine<E>,
+  pub(crate) G: G1Affine<E>,
+  pub(crate) H: G2Affine<E>,
+  pub(crate) tau_H: G2Affine<E>,
 }
 
 /// Provides an implementation of a polynomial evaluation argument
@@ -696,35 +717,72 @@ where
 
     //////////////// begin helper closures //////////
     let kzg_open = |f: &[E::Scalar], u: E::Scalar| -> G1Affine<E> {
-      // On input f(x) and u compute the witness polynomial used to prove
-      // that f(u) = v. The main part of this is to compute the
-      // division (f(x) - f(u)) / (x - u), but we don't use a general
-      // division algorithm, we make use of the fact that the division
-      // never has a remainder, and that the denominator is always a linear
-      // polynomial. The cost is (d-1) mults + (d-1) adds in E::Scalar, where
-      // d is the degree of f.
+      // Divides polynomial f(x) by (x - u) to obtain the witness polynomial h(x) = f(x)/(x - u)
+      // for KZG opening.
       //
-      // We use the fact that if we compute the quotient of f(x)/(x-u),
-      // there will be a remainder, but it'll be v = f(u).  Put another way
-      // the quotient of f(x)/(x-u) and (f(x) - f(v))/(x-u) is the
-      // same.  One advantage is that computing f(u) could be decoupled
-      // from kzg_open, it could be done later or separate from computing W.
+      // This implementation uses a chunking strategy to enable parallelization:
+      // - Divides the polynomial into chunks
+      // - Processes chunks in parallel using Rayon's par_chunks_exact_mut
+      // - Within each chunk, maintains a "running" partial result
+      // - Combines results across chunk boundaries
+      //
+      // While this adds more total computation than the standard Horner's method,
+      // the parallel execution provides significant speedup for large polynomials.
+      //
+      // Original sequential algorithm using Horner's method:
+      // ```
+      // let mut h = vec![E::Scalar::ZERO; d];
+      // for i in (1..d).rev() {
+      //   h[i - 1] = f[i] + h[i] * u;
+      // }
+      // ```
+      //
+      // The resulting polynomial h(x) satisfies: f(x) = h(x) * (x - u)
+      // The degree of h(x) is one less than the degree of f(x).
+      let div_by_monomial =
+        |f: &[E::Scalar], u: E::Scalar, target_chunks: usize| -> Vec<E::Scalar> {
+          assert!(!f.is_empty());
+          let target_chunk_size = f.len() / target_chunks;
+          let log2_chunk_size = target_chunk_size.max(1).ilog2();
+          let chunk_size = 1 << log2_chunk_size;
 
-      let compute_witness_polynomial = |f: &[E::Scalar], u: E::Scalar| -> Vec<E::Scalar> {
-        let d = f.len();
+          let u_to_the_chunk_size = (0..log2_chunk_size).fold(u, |u_pow, _| u_pow.square());
+          let mut result = f.to_vec();
+          result
+            .par_chunks_mut(chunk_size)
+            .zip(f.par_chunks(chunk_size))
+            .for_each(|(chunk, f_chunk)| {
+              for i in (0..chunk.len() - 1).rev() {
+                chunk[i] = f_chunk[i] + u * chunk[i + 1];
+              }
+            });
 
-        // Compute h(x) = f(x)/(x - u)
-        let mut h = vec![E::Scalar::ZERO; d];
-        for i in (1..d).rev() {
-          h[i - 1] = f[i] + h[i] * u;
-        }
+          let mut iter = result.chunks_mut(chunk_size).rev();
+          if let Some(last_chunk) = iter.next() {
+            let mut prev_partial = last_chunk[0];
+            for chunk in iter {
+              prev_partial = chunk[0] + u_to_the_chunk_size * prev_partial;
+              chunk[0] = prev_partial;
+            }
+          }
 
-        h
-      };
+          result[1..]
+            .par_chunks_exact_mut(chunk_size)
+            .rev()
+            .for_each(|chunk| {
+              let mut prev_partial = chunk[chunk_size - 1];
+              for e in chunk.iter_mut().rev().skip(1) {
+                prev_partial *= u;
+                *e += prev_partial;
+              }
+            });
+          result[1..].to_vec()
+        };
 
-      let h = compute_witness_polynomial(f, u);
+      let target_chunks = DEFAULT_TARGET_CHUNKS;
+      let h = &div_by_monomial(f, u, target_chunks);
 
-      E::CE::commit(ck, &h, &E::Scalar::ZERO).comm.affine()
+      E::CE::commit(ck, h, &E::Scalar::ZERO).comm.affine()
     };
 
     let kzg_open_batch = |f: &[Vec<E::Scalar>],
@@ -967,18 +1025,19 @@ where
 
 #[cfg(test)]
 mod tests {
+  use super::*;
+  #[cfg(feature = "io")]
+  use crate::provider::hyperkzg;
+  use crate::{
+    provider::{keccak::Keccak256Transcript, Bn256EngineKZG},
+    spartan::polys::multilinear::MultilinearPolynomial,
+  };
+  use rand::SeedableRng;
+  #[cfg(feature = "io")]
   use std::{
     fs::OpenOptions,
     io::{BufReader, BufWriter},
   };
-
-  use super::*;
-  use crate::{
-    provider::{hyperkzg, keccak::Keccak256Transcript, Bn256EngineKZG},
-    spartan::polys::multilinear::MultilinearPolynomial,
-  };
-  use bincode::Options;
-  use rand::SeedableRng;
 
   type E = Bn256EngineKZG;
   type Fr = <E as Engine>::Scalar;
@@ -1070,11 +1129,11 @@ mod tests {
     // check if the prover transcript and verifier transcript are kept in the same state
     assert_eq!(post_c_p, post_c_v);
 
-    let proof_bytes = bincode::DefaultOptions::new()
+    let config = bincode::config::legacy()
       .with_big_endian()
-      .with_fixint_encoding()
-      .serialize(&proof)
-      .unwrap();
+      .with_fixed_int_encoding();
+    let proof_bytes =
+      bincode::serde::encode_to_vec(&proof, config).expect("Failed to serialize proof");
     assert_eq!(proof_bytes.len(), 336);
 
     // Change the proof and expect verification to fail
@@ -1132,6 +1191,7 @@ mod tests {
     }
   }
 
+  #[cfg(feature = "io")]
   #[ignore = "only available with external ptau files"]
   #[test]
   fn test_hyperkzg_large_from_file() {
@@ -1191,6 +1251,7 @@ mod tests {
     }
   }
 
+  #[cfg(feature = "io")]
   #[test]
   fn test_save_load_ck() {
     const BUFFER_SIZE: usize = 64 * 1024;
@@ -1209,7 +1270,7 @@ mod tests {
       .unwrap();
     let mut writer = BufWriter::with_capacity(BUFFER_SIZE, file);
 
-    ck.save_to(&mut writer).unwrap();
+    CommitmentEngine::save_setup(&ck, &mut writer).unwrap();
 
     let file = OpenOptions::new().read(true).open(filename).unwrap();
 
@@ -1226,6 +1287,7 @@ mod tests {
     }
   }
 
+  #[cfg(feature = "io")]
   #[ignore = "only available with external ptau files"]
   #[test]
   fn test_load_ptau() {

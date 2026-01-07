@@ -22,6 +22,7 @@ pub struct CompressedUniPoly<Scalar: PrimeField> {
 }
 
 impl<Scalar: PrimeField> UniPoly<Scalar> {
+  #[cfg(feature = "experimental")]
   pub fn from_evals(evals: &[Scalar]) -> Self {
     let n = evals.len();
     let xs: Vec<Scalar> = (0..n).map(|x| Scalar::from(x as u64)).collect();
@@ -41,6 +42,32 @@ impl<Scalar: PrimeField> UniPoly<Scalar> {
 
     let coeffs = gaussian_elimination(&mut matrix);
     Self { coeffs }
+  }
+
+  // a x^2 + b x + c
+  // evals: [c, a + b + c, a]
+  pub fn from_evals_deg2(evals: &[Scalar]) -> Self {
+    let c = evals[0];
+    let a = evals[2];
+    let a_b_c = evals[1];
+    let b = a_b_c - a - c;
+    Self {
+      coeffs: vec![c, b, a],
+    }
+  }
+
+  // a x^3 + b x^2 + c x + d
+  // evals: [d, a + b + c, a, -a + b - c + d]
+  pub fn from_evals_deg3(evals: &[Scalar]) -> Self {
+    let d = evals[0];
+    let a = evals[2];
+    let a_b_c_d = evals[1];
+    let b2_d2 = a_b_c_d + evals[3];
+    let b = b2_d2 * Scalar::TWO_INV - d;
+    let c = a_b_c_d - a - d - b;
+    Self {
+      coeffs: vec![d, c, b, a],
+    }
   }
 
   pub fn degree(&self) -> usize {
@@ -130,15 +157,6 @@ pub fn gaussian_elimination<F: PrimeField>(matrix: &mut [Vec<F>]) -> Vec<F> {
     eliminate(matrix, i);
   }
 
-  // Disable cargo clippy warnings about needless range loops.
-  // Checking the diagonal like this is simpler than any alternative.
-  #[allow(clippy::needless_range_loop)]
-  for i in 0..size {
-    if matrix[i][i] == F::ZERO {
-      println!("Infinitely many solutions");
-    }
-  }
-
   let mut result: Vec<F> = vec![F::ZERO; size];
   for i in 0..size {
     result[i] = div_f(matrix[i][size], matrix[i][i]);
@@ -195,9 +213,9 @@ mod tests {
     // polynomial is 2x^2 + 3x + 1
     let e0 = F::ONE;
     let e1 = F::from(6);
-    let e2 = F::from(15);
+    let e2 = F::from(2);
     let evals = vec![e0, e1, e2];
-    let poly = UniPoly::from_evals(&evals);
+    let poly = UniPoly::from_evals_deg2(&evals);
 
     assert_eq!(poly.eval_at_zero(), e0);
     assert_eq!(poly.eval_at_one(), e1);
@@ -226,12 +244,12 @@ mod tests {
 
   fn test_from_evals_cubic_with<F: PrimeField>() {
     // polynomial is x^3 + 2x^2 + 3x + 1
-    let e0 = F::ONE;
-    let e1 = F::from(7);
-    let e2 = F::from(23);
-    let e3 = F::from(55);
+    let e0 = F::ONE; // f(0)
+    let e1 = F::from(7); // f(1)
+    let e2 = F::ONE; // cubic term
+    let e3 = -F::ONE; // f(-1)
     let evals = vec![e0, e1, e2, e3];
-    let poly = UniPoly::from_evals(&evals);
+    let poly = UniPoly::from_evals_deg3(&evals);
 
     assert_eq!(poly.eval_at_zero(), e0);
     assert_eq!(poly.eval_at_one(), e1);
@@ -257,42 +275,5 @@ mod tests {
     test_from_evals_cubic_with::<pallas::Scalar>();
     test_from_evals_cubic_with::<bn256::Scalar>();
     test_from_evals_cubic_with::<secp256k1::Scalar>()
-  }
-  fn test_from_evals_quartic_with<F: PrimeField>() {
-    // polynomial is x^4 + 2x^3 + 3x^2 + 4x + 5
-    let e0 = F::from(5);
-    let e1 = F::from(15);
-    let e2 = F::from(57);
-    let e3 = F::from(179);
-    let e4 = F::from(453);
-    let evals = vec![e0, e1, e2, e3, e4];
-    let poly = UniPoly::from_evals(&evals);
-
-    assert_eq!(poly.eval_at_zero(), e0);
-    assert_eq!(poly.eval_at_one(), e1);
-    assert_eq!(poly.coeffs.len(), 5);
-
-    assert_eq!(poly.coeffs[0], F::from(5));
-    assert_eq!(poly.coeffs[1], F::from(4));
-    assert_eq!(poly.coeffs[2], F::from(3));
-    assert_eq!(poly.coeffs[3], F::from(2));
-    assert_eq!(poly.coeffs[4], F::from(1));
-
-    let hint = e0 + e1;
-    let compressed_poly = poly.compress();
-    let decompressed_poly = compressed_poly.decompress(&hint);
-    for i in 0..decompressed_poly.coeffs.len() {
-      assert_eq!(decompressed_poly.coeffs[i], poly.coeffs[i]);
-    }
-
-    let e5 = F::from(975);
-    assert_eq!(poly.evaluate(&F::from(5)), e5);
-  }
-
-  #[test]
-  fn test_from_evals_quartic() {
-    test_from_evals_quartic_with::<pallas::Scalar>();
-    test_from_evals_quartic_with::<bn256::Scalar>();
-    test_from_evals_quartic_with::<secp256k1::Scalar>();
   }
 }

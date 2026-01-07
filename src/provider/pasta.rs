@@ -2,7 +2,7 @@
 use crate::{
   impl_traits,
   provider::{
-    msm::{msm, msm_small},
+    msm::{msm, msm_small, msm_small_with_max_num_bits},
     traits::{DlogGroup, DlogGroupExt},
   },
   traits::{Group, PrimeFieldExt, TranscriptReprTrait},
@@ -19,7 +19,6 @@ use num_integer::Integer;
 use num_traits::{Num, ToPrimitive};
 use rayon::prelude::*;
 use sha3::Shake256;
-use std::io::Read;
 
 /// Re-exports that give access to the standard aliases used in the code base, for pallas
 pub mod pallas {

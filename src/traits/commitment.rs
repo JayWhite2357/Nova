@@ -1,12 +1,11 @@
 //! This module defines a collection of traits that define the behavior of a commitment engine
 //! We require the commitment engine to provide a commitment to vectors with a single group element
-use crate::{
-  provider::ptau::PtauFileError,
-  traits::{AbsorbInRO2Trait, AbsorbInROTrait, Engine, TranscriptReprTrait},
-};
+#[cfg(feature = "io")]
+use crate::provider::ptau::PtauFileError;
+use crate::traits::{AbsorbInRO2Trait, AbsorbInROTrait, Engine, TranscriptReprTrait};
 use core::{
   fmt::Debug,
-  ops::{Add, Mul, MulAssign},
+  ops::{Add, Mul, MulAssign, Range},
 };
 use num_integer::Integer;
 use num_traits::ToPrimitive;
@@ -61,11 +60,19 @@ pub trait CommitmentEngineTrait<E: Engine>: Clone + Send + Sync {
   type Commitment: CommitmentTrait<E>;
 
   /// Load keys
+  #[cfg(feature = "io")]
   fn load_setup(
     reader: &mut (impl std::io::Read + std::io::Seek),
     label: &'static [u8],
     n: usize,
   ) -> Result<Self::CommitmentKey, PtauFileError>;
+
+  /// Saves the key to the provided writer.
+  #[cfg(feature = "io")]
+  fn save_setup(
+    ck: &Self::CommitmentKey,
+    writer: &mut (impl std::io::Write + std::io::Seek),
+  ) -> Result<(), PtauFileError>;
 
   /// Samples a new commitment key of a specified size
   fn setup(label: &'static [u8], n: usize) -> Self::CommitmentKey;
@@ -94,6 +101,15 @@ pub trait CommitmentEngineTrait<E: Engine>: Clone + Send + Sync {
     ck: &Self::CommitmentKey,
     v: &[T],
     r: &E::Scalar,
+  ) -> Self::Commitment;
+
+  /// Commits to the provided vector of "small" scalars (at most 64 bits) using the provided generators and random blind (range)
+  fn commit_small_range<T: Integer + Into<u64> + Copy + Sync + ToPrimitive>(
+    ck: &Self::CommitmentKey,
+    v: &[T],
+    r: &E::Scalar,
+    range: Range<usize>,
+    max_num_bits: usize,
   ) -> Self::Commitment;
 
   /// Batch commits to the provided vectors of "small" scalars (at most 64 bits) using the provided generators and random blind
