@@ -1,25 +1,35 @@
 //! This module implements Nova's traits using the following several different combinations
 
 // public modules to be used as an evaluation engine with Spartan
+#[cfg(feature = "parallel")]
 pub mod bn256_grumpkin;
 pub mod hyperkzg;
+#[cfg(feature = "parallel")]
 pub mod ipa_pc;
+#[cfg(feature = "parallel")]
 pub mod mercury;
+#[cfg(feature = "parallel")]
 pub mod pasta;
+#[cfg(feature = "parallel")]
 pub mod poseidon;
+#[cfg(feature = "parallel")]
 pub mod secp_secq;
 
 // crate-private modules
 #[cfg(feature = "blitzar")]
 pub(crate) mod blitzar;
+#[cfg(feature = "parallel")]
 pub(crate) mod keccak;
+#[cfg(feature = "parallel")]
 pub(crate) mod pedersen;
 #[cfg(feature = "io")]
 pub(crate) mod ptau;
 pub(crate) mod traits;
 
+#[cfg(feature = "parallel")]
 mod msm;
 
+#[cfg(feature = "parallel")]
 use crate::{
   provider::{
     bn256_grumpkin::{bn256, grumpkin},
@@ -48,6 +58,7 @@ pub struct GrumpkinEngine;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Bn256EngineIPA;
 
+#[cfg(feature = "parallel")]
 impl Engine for Bn256EngineKZG {
   type Base = bn256::Base;
   type Scalar = bn256::Scalar;
@@ -60,6 +71,7 @@ impl Engine for Bn256EngineKZG {
   type CE = HyperKZGCommitmentEngine<Self>;
 }
 
+#[cfg(feature = "parallel")]
 impl Engine for Bn256EngineIPA {
   type Base = bn256::Base;
   type Scalar = bn256::Scalar;
@@ -72,6 +84,7 @@ impl Engine for Bn256EngineIPA {
   type CE = PedersenCommitmentEngine<Self>;
 }
 
+#[cfg(feature = "parallel")]
 impl Engine for GrumpkinEngine {
   type Base = grumpkin::Base;
   type Scalar = grumpkin::Scalar;
@@ -92,6 +105,7 @@ pub struct Secp256k1Engine;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Secq256k1Engine;
 
+#[cfg(feature = "parallel")]
 impl Engine for Secp256k1Engine {
   type Base = secp256k1::Base;
   type Scalar = secp256k1::Scalar;
@@ -104,6 +118,7 @@ impl Engine for Secp256k1Engine {
   type CE = PedersenCommitmentEngine<Self>;
 }
 
+#[cfg(feature = "parallel")]
 impl Engine for Secq256k1Engine {
   type Base = secq256k1::Base;
   type Scalar = secq256k1::Scalar;
@@ -124,6 +139,7 @@ pub struct PallasEngine;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct VestaEngine;
 
+#[cfg(feature = "parallel")]
 impl Engine for PallasEngine {
   type Base = pallas::Base;
   type Scalar = pallas::Scalar;
@@ -136,6 +152,7 @@ impl Engine for PallasEngine {
   type CE = PedersenCommitmentEngine<Self>;
 }
 
+#[cfg(feature = "parallel")]
 impl Engine for VestaEngine {
   type Base = vesta::Base;
   type Scalar = vesta::Scalar;
@@ -148,7 +165,7 @@ impl Engine for VestaEngine {
   type CE = PedersenCommitmentEngine<Self>;
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "parallel"))]
 mod tests {
   use crate::provider::{
     bn256_grumpkin::bn256, pasta::pallas, secp_secq::secp256k1, traits::DlogGroup,

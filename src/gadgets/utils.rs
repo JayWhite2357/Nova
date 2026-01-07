@@ -1,18 +1,27 @@
 //! This module implements various low-level gadgets
-use super::nonnative::bignat::{nat_to_limbs, BigNat};
+use super::nonnative::bignat::nat_to_limbs;
+#[cfg(feature = "parallel")]
+use super::nonnative::bignat::BigNat;
 use crate::{
   constants::{BN_LIMB_WIDTH, BN_N_LIMBS},
+  gadgets::nonnative::util::f_to_nat,
+};
+#[cfg(feature = "parallel")]
+use crate::{
   frontend::{
     num::AllocatedNum, AllocatedBit, Assignment, Boolean, ConstraintSystem, LinearCombination,
     SynthesisError,
   },
-  gadgets::nonnative::util::f_to_nat,
   traits::Engine,
 };
-use ff::{Field, PrimeField, PrimeFieldBits};
+#[cfg(feature = "parallel")]
+use ff::Field;
+use ff::{PrimeField, PrimeFieldBits};
+#[cfg(feature = "parallel")]
 use num_bigint::BigInt;
 
 /// Gets as input the little indian representation of a number and spits out the number
+#[cfg(feature = "parallel")]
 pub fn le_bits_to_num<Scalar, CS>(
   mut cs: CS,
   bits: &[AllocatedBit],
@@ -46,6 +55,7 @@ where
 }
 
 /// Allocate a variable that is set to zero
+#[cfg(feature = "parallel")]
 pub fn alloc_zero<F: PrimeField, CS: ConstraintSystem<F>>(mut cs: CS) -> AllocatedNum<F> {
   let zero = AllocatedNum::alloc_infallible(cs.namespace(|| "alloc"), || F::ZERO);
   cs.enforce(
@@ -58,6 +68,7 @@ pub fn alloc_zero<F: PrimeField, CS: ConstraintSystem<F>>(mut cs: CS) -> Allocat
 }
 
 /// Allocate a variable that is set to one
+#[cfg(feature = "parallel")]
 pub fn alloc_one<F: PrimeField, CS: ConstraintSystem<F>>(mut cs: CS) -> AllocatedNum<F> {
   let one = AllocatedNum::alloc_infallible(cs.namespace(|| "alloc"), || F::ONE);
   cs.enforce(
@@ -71,6 +82,7 @@ pub fn alloc_one<F: PrimeField, CS: ConstraintSystem<F>>(mut cs: CS) -> Allocate
 }
 
 /// Allocate a scalar as a base. Only to be used is the scalar fits in base!
+#[cfg(feature = "parallel")]
 pub fn alloc_scalar_as_base<E, CS>(
   mut cs: CS,
   input: Option<E::Scalar>,
@@ -96,12 +108,14 @@ where
 
 /// interpret scalar as base
 /// Only to be used is the scalar fits in base!
+#[cfg(feature = "parallel")]
 pub fn scalar_as_base<E: Engine>(input: E::Scalar) -> E::Base {
   field_switch::<E::Scalar, E::Base>(input)
 }
 
 /// interpret base as scalar
 /// Only to be used is the scalar fits in base!
+#[cfg(feature = "parallel")]
 pub fn base_as_scalar<E: Engine>(input: E::Base) -> E::Scalar {
   field_switch::<E::Base, E::Scalar>(input)
 }
@@ -130,6 +144,7 @@ pub fn to_bignat_repr<F1: PrimeField + PrimeFieldBits, F2: PrimeField>(x: &F1) -
 }
 
 /// Allocate bignat a constant
+#[cfg(feature = "parallel")]
 pub fn alloc_bignat_constant<F: PrimeField, CS: ConstraintSystem<F>>(
   mut cs: CS,
   val: &BigInt,
@@ -157,6 +172,7 @@ pub fn alloc_bignat_constant<F: PrimeField, CS: ConstraintSystem<F>>(
 }
 
 /// Check that two numbers are equal and return a bit
+#[cfg(feature = "parallel")]
 pub fn alloc_num_equals<F: PrimeField, CS: ConstraintSystem<F>>(
   mut cs: CS,
   a: &AllocatedNum<F>,
@@ -201,6 +217,7 @@ pub fn alloc_num_equals<F: PrimeField, CS: ConstraintSystem<F>>(
 }
 
 /// If condition return a otherwise b
+#[cfg(feature = "parallel")]
 pub fn conditionally_select<F: PrimeField, CS: ConstraintSystem<F>>(
   mut cs: CS,
   a: &AllocatedNum<F>,
@@ -228,6 +245,7 @@ pub fn conditionally_select<F: PrimeField, CS: ConstraintSystem<F>>(
 }
 
 /// If condition return a otherwise b
+#[cfg(feature = "parallel")]
 pub fn conditionally_select_vec<F: PrimeField, CS: ConstraintSystem<F>>(
   mut cs: CS,
   a: &[AllocatedNum<F>],
@@ -244,6 +262,7 @@ pub fn conditionally_select_vec<F: PrimeField, CS: ConstraintSystem<F>>(
 }
 
 /// If condition return a otherwise b where a and b are `BigNats`
+#[cfg(feature = "parallel")]
 pub fn conditionally_select_bignat<F: PrimeField, CS: ConstraintSystem<F>>(
   mut cs: CS,
   a: &BigNat<F>,
@@ -279,6 +298,7 @@ pub fn conditionally_select_bignat<F: PrimeField, CS: ConstraintSystem<F>>(
 
 /// Same as the above but Condition is an `AllocatedNum` that needs to be
 /// 0 or 1. 1 => True, 0 => False
+#[cfg(feature = "parallel")]
 pub fn conditionally_select2<F: PrimeField, CS: ConstraintSystem<F>>(
   mut cs: CS,
   a: &AllocatedNum<F>,
@@ -306,6 +326,7 @@ pub fn conditionally_select2<F: PrimeField, CS: ConstraintSystem<F>>(
 }
 
 /// If condition set to 0 otherwise a. Condition is an allocated num
+#[cfg(feature = "parallel")]
 pub fn select_zero_or_num2<F: PrimeField, CS: ConstraintSystem<F>>(
   mut cs: CS,
   a: &AllocatedNum<F>,
@@ -331,6 +352,7 @@ pub fn select_zero_or_num2<F: PrimeField, CS: ConstraintSystem<F>>(
 }
 
 /// If condition set to a otherwise 0. Condition is an allocated num
+#[cfg(feature = "parallel")]
 pub fn select_num_or_zero2<F: PrimeField, CS: ConstraintSystem<F>>(
   mut cs: CS,
   a: &AllocatedNum<F>,
@@ -355,6 +377,7 @@ pub fn select_num_or_zero2<F: PrimeField, CS: ConstraintSystem<F>>(
 }
 
 /// If condition set to a otherwise 0
+#[cfg(feature = "parallel")]
 pub fn select_num_or_zero<F: PrimeField, CS: ConstraintSystem<F>>(
   mut cs: CS,
   a: &AllocatedNum<F>,
@@ -379,6 +402,7 @@ pub fn select_num_or_zero<F: PrimeField, CS: ConstraintSystem<F>>(
 }
 
 /// If condition set to 1 otherwise a
+#[cfg(feature = "parallel")]
 pub fn select_one_or_num2<F: PrimeField, CS: ConstraintSystem<F>>(
   mut cs: CS,
   a: &AllocatedNum<F>,
@@ -402,6 +426,7 @@ pub fn select_one_or_num2<F: PrimeField, CS: ConstraintSystem<F>>(
 }
 
 /// If condition set to 1 otherwise a - b
+#[cfg(feature = "parallel")]
 pub fn select_one_or_diff2<F: PrimeField, CS: ConstraintSystem<F>>(
   mut cs: CS,
   a: &AllocatedNum<F>,
@@ -426,6 +451,7 @@ pub fn select_one_or_diff2<F: PrimeField, CS: ConstraintSystem<F>>(
 }
 
 /// If condition set to a otherwise 1 for boolean conditions
+#[cfg(feature = "parallel")]
 pub fn select_num_or_one<F: PrimeField, CS: ConstraintSystem<F>>(
   mut cs: CS,
   a: &AllocatedNum<F>,

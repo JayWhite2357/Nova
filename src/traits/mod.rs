@@ -166,6 +166,8 @@ impl<G: Group, T: TranscriptReprTrait<G>> TranscriptReprTrait<G> for &[T] {
   }
 }
 
+#[cfg(feature = "parallel")]
 pub mod circuit;
 pub mod evaluation;
+#[cfg(feature = "parallel")]
 pub mod snark;

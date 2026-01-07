@@ -6,7 +6,7 @@ use core::{
 use halo2curves::{serde::SerdeObject, CurveAffine};
 use num_integer::Integer;
 use num_traits::ToPrimitive;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use plonky2_maybe_rayon::*;
 use serde::{Deserialize, Serialize};
 
 /// A helper trait for types with a group operation.

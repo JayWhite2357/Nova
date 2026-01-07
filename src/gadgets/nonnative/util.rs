@@ -1,13 +1,17 @@
+#[cfg(feature = "parallel")]
 use super::{BitAccess, OptionExt};
+#[cfg(feature = "parallel")]
 use crate::frontend::{
   num::AllocatedNum, ConstraintSystem, LinearCombination, SynthesisError, Variable,
 };
 use ff::PrimeField;
 use num_bigint::{BigInt, Sign};
+#[cfg(feature = "parallel")]
 use std::convert::From;
 
 #[derive(Clone)]
 /// A representation of a bit
+#[cfg(feature = "parallel")]
 pub struct Bit<Scalar: PrimeField> {
   /// The linear combination which constrain the value of the bit
   pub bit: LinearCombination<Scalar>,
@@ -15,6 +19,7 @@ pub struct Bit<Scalar: PrimeField> {
 
 #[derive(Clone)]
 /// A representation of a bit-vector
+#[cfg(feature = "parallel")]
 pub struct Bitvector<Scalar: PrimeField> {
   /// The linear combination which constrain the values of the bits
   pub bits: Vec<LinearCombination<Scalar>>,
@@ -24,6 +29,7 @@ pub struct Bitvector<Scalar: PrimeField> {
   pub allocations: Vec<Bit<Scalar>>,
 }
 
+#[cfg(feature = "parallel")]
 impl<Scalar: PrimeField> Bit<Scalar> {
   /// Allocate a variable in the constraint system which can only be a
   /// boolean value.
@@ -57,11 +63,13 @@ impl<Scalar: PrimeField> Bit<Scalar> {
   }
 }
 
+#[cfg(feature = "parallel")]
 pub struct Num<Scalar: PrimeField> {
   pub(crate) num: LinearCombination<Scalar>,
   pub(crate) value: Option<Scalar>,
 }
 
+#[cfg(feature = "parallel")]
 impl<Scalar: PrimeField> Num<Scalar> {
   pub const fn new(value: Option<Scalar>, num: LinearCombination<Scalar>) -> Self {
     Self { value, num }
@@ -222,6 +230,7 @@ impl<Scalar: PrimeField> Num<Scalar> {
   }
 }
 
+#[cfg(feature = "parallel")]
 impl<Scalar: PrimeField> From<AllocatedNum<Scalar>> for Num<Scalar> {
   fn from(a: AllocatedNum<Scalar>) -> Self {
     Self::new(a.get_value(), LinearCombination::zero() + a.get_variable())

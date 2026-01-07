@@ -28,8 +28,8 @@ use core::{
 use ff::{Field, PrimeFieldBits};
 use num_integer::Integer;
 use num_traits::ToPrimitive;
+use plonky2_maybe_rayon::*;
 use rand_core::OsRng;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Alias to points on G1 that are in preprocessed form

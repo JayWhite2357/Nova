@@ -17,6 +17,7 @@ pub use gadgets::{
 };
 pub use lc::{Index, LinearCombination, Variable};
 
+#[cfg(feature = "parallel")]
 pub mod r1cs;
 pub mod shape_cs;
 pub mod solver;
@@ -26,7 +27,7 @@ pub mod util_cs;
 #[cfg(test)]
 pub use util_cs::test_cs;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "parallel"))]
 mod tests {
   use crate::{
     frontend::{

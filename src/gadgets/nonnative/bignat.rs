@@ -1,19 +1,26 @@
+use super::util::nat_to_f;
+#[cfg(feature = "parallel")]
 use super::{
-  util::{f_to_nat, nat_to_f, Bitvector, Num},
+  util::{f_to_nat, Bitvector, Num},
   OptionExt,
 };
-use crate::frontend::{ConstraintSystem, LinearCombination, SynthesisError};
+use crate::frontend::SynthesisError;
+#[cfg(feature = "parallel")]
+use crate::frontend::{ConstraintSystem, LinearCombination};
 use ff::PrimeField;
 use num_bigint::BigInt;
+#[cfg(feature = "parallel")]
 use num_traits::cast::ToPrimitive;
+use std::convert::From;
+#[cfg(feature = "parallel")]
 use std::{
   borrow::Borrow,
   cmp::{max, min},
-  convert::From,
 };
 
 /// Compute the natural number represented by an array of limbs.
 /// The limbs are assumed to be based the `limb_width` power of 2.
+#[cfg(feature = "parallel")]
 pub fn limbs_to_nat<Scalar: PrimeField, B: Borrow<Scalar>, I: DoubleEndedIterator<Item = B>>(
   limbs: I,
   limb_width: usize,
@@ -59,6 +66,7 @@ pub fn nat_to_limbs<Scalar: PrimeField>(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg(feature = "parallel")]
 pub struct BigNatParams {
   pub min_bits: usize,
   pub max_word: BigInt,
@@ -66,6 +74,7 @@ pub struct BigNatParams {
   pub n_limbs: usize,
 }
 
+#[cfg(feature = "parallel")]
 impl BigNatParams {
   pub fn new(limb_width: usize, n_limbs: usize) -> Self {
     let mut max_word = BigInt::from(1) << limb_width as u32;
@@ -81,6 +90,7 @@ impl BigNatParams {
 
 /// A representation of a large natural number (a member of {0, 1, 2, ... })
 #[derive(Clone, Debug)]
+#[cfg(feature = "parallel")]
 pub struct BigNat<Scalar: PrimeField> {
   /// The linear combinations which constrain the value of each limb of the number
   pub limbs: Vec<LinearCombination<Scalar>>,
@@ -92,13 +102,16 @@ pub struct BigNat<Scalar: PrimeField> {
   pub params: BigNatParams,
 }
 
+#[cfg(feature = "parallel")]
 impl<Scalar: PrimeField> PartialEq for BigNat<Scalar> {
   fn eq(&self, other: &Self) -> bool {
     self.value == other.value && self.params == other.params
   }
 }
+#[cfg(feature = "parallel")]
 impl<Scalar: PrimeField> Eq for BigNat<Scalar> {}
 
+#[cfg(feature = "parallel")]
 impl<Scalar: PrimeField> From<BigNat<Scalar>> for Polynomial<Scalar> {
   fn from(other: BigNat<Scalar>) -> Polynomial<Scalar> {
     Polynomial {
@@ -108,10 +121,12 @@ impl<Scalar: PrimeField> From<BigNat<Scalar>> for Polynomial<Scalar> {
   }
 }
 
+#[cfg(feature = "parallel")]
 impl<Scalar: PrimeField> BigNat<Scalar> {
   /// Allocates a `BigNat` in the circuit with `n_limbs` limbs of width `limb_width` each.
   /// If `max_word` is missing, then it is assumed to be `(2 << limb_width) - 1`.
   /// The value is provided by a closure returning limb values.
+  #[cfg(feature = "parallel")]
   pub fn alloc_from_limbs<CS, F>(
     mut cs: CS,
     f: F,
@@ -167,6 +182,7 @@ impl<Scalar: PrimeField> BigNat<Scalar> {
   /// Allocates a `BigNat` in the circuit with `n_limbs` limbs of width `limb_width` each.
   /// The `max_word` is guaranteed to be `(2 << limb_width) - 1`.
   /// The value is provided by a closure returning a natural number.
+  #[cfg(feature = "parallel")]
   pub fn alloc_from_nat<CS, F>(
     mut cs: CS,
     f: F,
@@ -214,6 +230,7 @@ impl<Scalar: PrimeField> BigNat<Scalar> {
   /// Allocates a `BigNat` in the circuit with `n_limbs` limbs of width `limb_width` each.
   /// The `max_word` is guaranteed to be `(2 << limb_width) - 1`.
   /// The value is provided by an allocated number
+  #[cfg(feature = "parallel")]
   pub fn from_num<CS: ConstraintSystem<Scalar>>(
     mut cs: CS,
     n: &Num<Scalar>,
@@ -243,6 +260,7 @@ impl<Scalar: PrimeField> BigNat<Scalar> {
     Ok(bignat)
   }
 
+  #[cfg(feature = "parallel")]
   pub fn as_limbs(&self) -> Vec<Num<Scalar>> {
     let mut limbs = Vec::new();
     for (i, lc) in self.limbs.iter().enumerate() {
@@ -254,6 +272,7 @@ impl<Scalar: PrimeField> BigNat<Scalar> {
     limbs
   }
 
+  #[cfg(feature = "parallel")]
   pub fn assert_well_formed<CS: ConstraintSystem<Scalar>>(
     &self,
     mut cs: CS,
@@ -269,6 +288,7 @@ impl<Scalar: PrimeField> BigNat<Scalar> {
   }
 
   /// Break `self` up into a bit-vector.
+  #[cfg(feature = "parallel")]
   pub fn decompose<CS: ConstraintSystem<Scalar>>(
     &self,
     mut cs: CS,
@@ -342,6 +362,7 @@ impl<Scalar: PrimeField> BigNat<Scalar> {
   }
 
   /// Constrain `self` to be equal to `other`, after carrying both.
+  #[cfg(feature = "parallel")]
   pub fn equal_when_carried<CS: ConstraintSystem<Scalar>>(
     &self,
     mut cs: CS,
@@ -426,6 +447,7 @@ impl<Scalar: PrimeField> BigNat<Scalar> {
   /// Constrain `self` to be equal to `other`, after carrying both.
   /// Uses regrouping internally to take full advantage of the field size and reduce the amount
   /// of carrying.
+  #[cfg(feature = "parallel")]
   pub fn equal_when_carried_regroup<CS: ConstraintSystem<Scalar>>(
     &self,
     mut cs: CS,
@@ -487,6 +509,7 @@ impl<Scalar: PrimeField> BigNat<Scalar> {
   }
 
   /// Compute a `BigNat` constrained to be equal to `self * other % modulus`.
+  #[cfg(feature = "parallel")]
   pub fn mult_mod<CS: ConstraintSystem<Scalar>>(
     &self,
     mut cs: CS,
@@ -558,6 +581,7 @@ impl<Scalar: PrimeField> BigNat<Scalar> {
   }
 
   /// Compute a `BigNat` constrained to be equal to `self * other % modulus`.
+  #[cfg(feature = "parallel")]
   pub fn red_mod<CS: ConstraintSystem<Scalar>>(
     &self,
     mut cs: CS,
@@ -603,6 +627,7 @@ impl<Scalar: PrimeField> BigNat<Scalar> {
   }
 
   /// Combines limbs into groups.
+  #[cfg(feature = "parallel")]
   pub fn group_limbs(&self, limbs_per_group: usize) -> BigNat<Scalar> {
     let n_groups = (self.limbs.len() - 1) / limbs_per_group + 1;
     let limb_values = self.limb_values.as_ref().map(|vs| {
@@ -657,17 +682,20 @@ impl<Scalar: PrimeField> BigNat<Scalar> {
     }
   }
 
+  #[cfg(feature = "parallel")]
   pub fn n_bits(&self) -> usize {
     assert!(self.params.n_limbs > 0);
     self.params.limb_width * (self.params.n_limbs - 1) + self.params.max_word.bits() as usize
   }
 }
 
+#[cfg(feature = "parallel")]
 pub struct Polynomial<Scalar: PrimeField> {
   pub coefficients: Vec<LinearCombination<Scalar>>,
   pub values: Option<Vec<Scalar>>,
 }
 
+#[cfg(feature = "parallel")]
 impl<Scalar: PrimeField> Polynomial<Scalar> {
   pub fn alloc_product<CS: ConstraintSystem<Scalar>>(
     &self,
@@ -734,6 +762,7 @@ impl<Scalar: PrimeField> Polynomial<Scalar> {
     Ok(product)
   }
 
+  #[cfg(feature = "parallel")]
   pub fn sum(&self, other: &Self) -> Self {
     let n_coeffs = max(self.coefficients.len(), other.coefficients.len());
     let values = self.values.as_ref().and_then(|self_vs| {
@@ -771,7 +800,7 @@ impl<Scalar: PrimeField> Polynomial<Scalar> {
   }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "parallel"))]
 mod tests {
   use super::*;
   use crate::{
